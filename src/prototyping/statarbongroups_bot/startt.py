@@ -50,8 +50,10 @@ async def send_tcp_message(writer: asyncio.StreamWriter, msg: dict):
                            timeout=TIMEOUT_GRACE_PERIOD)
 
 async def reply(writer: asyncio.StreamWriter, json_msg: dict):
-    if MESSAGE_ID in json_msg:
-        msg_type = json_msg[MESSAGE_ID]
+    if MESSAGE_ID not in json_msg:
+        return
+    msg_type = json_msg[MESSAGE_ID]
+    try:
         if msg_type == LOGON_TYPE:
             handle_logon(json_msg)
         elif msg_type == MARKET_DATA_TYPE:
@@ -64,6 +66,9 @@ async def reply(writer: asyncio.StreamWriter, json_msg: dict):
             handle_order_report(json_msg)
         elif msg_type == SUBSCRIBE:
             pass
+    except Exception:
+        print(f'Error while handling {msg_type!r} message:')
+        print(traceback.format_exc())
 
 async def handle_market_data(writer: asyncio.StreamWriter, msg: dict):
 
@@ -91,32 +96,23 @@ def handle_news(msg: dict):
 
 def handle_logon(msg: dict):
     global session_key
-    if ERROR in msg.keys():
+    if ERROR in msg:
         print(f'Error on logon: {msg[ERROR]}')
-    elif SESSION_KEY in msg.keys():
-        session_key = msg[SESSION_KEY]
-        print(f'Received successfull logon response, '
-              f'session_key: {session_key}')
-        print('?' * 36)
-        print(DATA)
-        print(list(msg.keys()))
-        if DATA in msg.keys():
-            acc_info = msg[DATA]
-            print('!' * 36)
-            print(acc_info)
-            trader.update_account_information(acc_info=acc_info)
-            print(acc_info)
-            exit()
-    else:
+        return
+    if SESSION_KEY not in msg:
         print(f'Error on logon, full message: {msg}')
+        return
+    session_key = msg[SESSION_KEY]
+    print(f'Received successfull logon response, session_key: {session_key}')
 
 
 async def handle_message(writer: asyncio.StreamWriter, msg: str):
     try:
         json_msg = json.loads(msg)
-        await reply(writer, json_msg)
     except json.JSONDecodeError:
-        print('Received a msg with incorrect format')
+        print(f'Received a msg with incorrect format: {msg[:200]!r}')
+        return
+    await reply(writer, json_msg)
 
 
 async def send_logon(writer: asyncio.StreamWriter):
@@ -165,36 +161,33 @@ async def send_keepalive(writer: asyncio.StreamWriter):
 async def handle_server(reader: asyncio.StreamReader,
                         writer: asyncio.StreamWriter):
     try:
-        msg = ''
-        prev_character = ''
         while True:
-            received_byte =\
-                await asyncio.wait_for(reader.read(1),
-                                       timeout=TIMEOUT_GRACE_PERIOD)
-            character = received_byte.decode('utf-8', 'ignore')
-            if character == '\n' and prev_character == '\n':
-                # print(f'\n\nReceived: {msg}\n\n')
+            try:
+                raw = await asyncio.wait_for(
+                    reader.readuntil(b'\n\n'),
+                    timeout=TIMEOUT_GRACE_PERIOD)
+            except asyncio.IncompleteReadError:
+                print('Server closed the connection')
+                break
+            except asyncio.LimitOverrunError as e:
+                print(f'Inbound message exceeds buffer limit: {e}; '
+                      f'aborting connection')
+                break
+            msg = raw[:-2].decode('utf-8', 'ignore')
+            if msg:
                 await handle_message(writer, msg)
-                msg = ''
-                prev_character = ''
-            else:
-                msg += character
-                prev_character = character
     except ConnectionError as e:
-        print(e)
-        print(f'Connection lost in handle server')
-    except TimeoutError as e:
-        print(e)
-        print(f'Timeout error in handle server')
+        print(f'Connection lost in handle_server: {e}')
+    except asyncio.TimeoutError:
+        print(f'Timeout (no bytes for {TIMEOUT_GRACE_PERIOD}s) in handle_server')
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
-        message = f'handle_server error: ' \
-                  f'An exception of type {type(e).__name__} occurred. Arguments:{e.args}'
-        print(message)
+        print(f'handle_server error: {type(e).__name__}: {e.args}')
         print(traceback.format_exc())
-        print(f'Is closing: {writer.is_closing()}')
     finally:
-        print('Unhandled exception happened, closing connection')
-        writer.close()
+        if not writer.is_closing():
+            writer.close()
 
 async def start_connection():
     global seq_counter, session_key, session_host
@@ -208,7 +201,7 @@ async def start_connection():
     for i in range(N_ATTEMPTS):
         try:
             reader, writer = await asyncio.open_connection(
-                session_host, port)
+                session_host, port, limit=4 * 1024 * 1024)
         except ConnectionError as e:
             print(e)
             print(f'Connection attempt no {i+1} out of {N_ATTEMPTS}'
