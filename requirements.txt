@@ -1,0 +1,14 @@
+pandas
+numpy
+numba
+yfinance
+matplotlib
+pytz
+python-dateutil
+
+# Internal-only imports (not on PyPI, intentionally not pinned here):
+#   app.database, app.server.const
+#   pycommon.time.helper
+#   pytrade.db.calendar, pytrade.db.calendar.holiday
+# These appear in legacy offline-analytics paths and are not required
+# for the live TCP/strategy flow.
