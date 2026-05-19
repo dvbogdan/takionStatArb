@@ -50,6 +50,7 @@ Reference doc: [../takionTCP/CLAUDE.md](../takionTCP/CLAUDE.md).
 - `print()` is the logger. No structured logging yet.
 - `localsettings.py` is for local overrides; never commit credentials/IPs there casually.
 - Commit messages: descriptive sentences, no conventional-commit prefixes (`git log main`).
+- **Keep this CLAUDE.md current.** When you land a non-trivial change, update the relevant section in the same PR — new/removed/renamed key file → "Key files" table; merged or new branch → "Branches in flight"; new gotcha → "Known booby-traps"; new bug or optimization idea → "Work plan" with P0/P1/P2 priority; protocol-shape change → "Protocol contract" *and* its sibling in [../takionTCP/CLAUDE.md](../takionTCP/CLAUDE.md). Stale doc is worse than no doc.
 
 ## Known booby-traps
 
